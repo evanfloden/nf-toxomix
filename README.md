@@ -8,7 +8,7 @@ Pipeline for toxicology predictions based on transcriptomic profiles.
 
 
 ### Introduction
-NF-toxomix: Pipeline for ttoxicology predictions based on transcriptomic profiles
+NF-toxomix: Pipeline for toxicology predictions based on transcriptomic profiles
 
 The pipeline is built using [Nextflow](https://www.nextflow.io), a workflow tool to run tasks across multiple compute infrastructures in a very portable manner. It comes with docker / singularity containers making installation trivial and results highly reproducible.
 

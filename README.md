@@ -1,3 +1,5 @@
+<img src="https://skptic/nf-toxomix/assets/toxomix_logo.png" width="400">
+
 # NF-toxomix
 Pipeline for toxicology predictions based on transcriptomic profiles.
 

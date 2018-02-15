@@ -1,5 +1,5 @@
 # NF-toxomix
-Pipeline for ttoxicology predictions based on transcriptomic profiles
+Pipeline for toxicology predictions based on transcriptomic profiles.
 
 [![Build Status](https://travis-ci.org/skptic/NF-toxomix.svg?branch=master)](https://travis-ci.org/skptic/NF-toxomix)
 [![Nextflow](https://img.shields.io/badge/nextflow-%E2%89%A50.24.0-brightgreen.svg)](https://www.nextflow.io/)

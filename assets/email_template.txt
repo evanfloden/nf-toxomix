@@ -1,0 +1,56 @@
+========================================
+ NF-toxomix v${version}
+========================================
+Run Name: $runName
+
+<% if (success){
+    out << "## NF-toxomix execution completed successfully! ##"
+} else {
+    out << """####################################################
+## NF-toxomix execution completed unsuccessfully! ##
+####################################################
+The exit status of the task that caused the workflow execution to fail was: $exitStatus.
+The full error message was:
+
+${errorReport}
+"""
+} %>
+
+
+<% if (!success){
+    out << """####################################################
+## NF-toxomix execution completed unsuccessfully! ##
+####################################################
+The exit status of the task that caused the workflow execution to fail was: $exitStatus.
+The full error message was:
+
+${errorReport}
+"""
+} else {
+    out << "## NF-toxomix execution completed successfully! ##"
+}
+%>
+
+
+
+
+The workflow was completed at $dateComplete (duration: $duration)
+
+The command used to launch the workflow was as follows:
+
+  $commandLine
+
+
+
+Pipeline Configuration:
+-----------------------
+<% out << summary.collect{ k,v -> " - $k: $v" }.join("\n") %>
+
+
+Software Versions:
+-----------------------
+<% out << software_versions.collect{ k,v -> " - $k: $v" }.join("\n") %>
+
+--
+NF-toxomix
+https://github.com/skptic/NF-toxomix

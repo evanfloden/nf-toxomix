@@ -164,7 +164,6 @@ process get_software_versions {
 }
 
 
-
 /*
  * STEP 1 - FastQC
  */
@@ -185,10 +184,77 @@ process fastqc {
     """
 }
 
+/*
+ * STEP 2 - Index Transcriptome
+ */
+process index {
+    tag "$prefix"
+    publishDir "${params.outdir}/index", mode: 'copy'
+
+    input:
+    file transcriptome_file
+    
+    output:
+    file "transcriptome.index" into transcriptome_index
+      
+    script:
+    """
+    kallisto index -i transcriptome.index ${transcriptome_file}
+    """
+}
+
+/*
+ * STEP 3 - Quantify RNA 
+ */
+
+process quantify {
+    tag "reads: $name"
+
+    input:
+    file index from transcriptome_index
+    set val(name), file(reads) from read_files
+
+    output:
+    file "kallisto_${name}" into kallisto_out_dirs 
+
+    script:
+    def single = reads instanceof Path
+    if( !single ) {
+        """
+        mkdir kallisto_${name}
+        kallisto quant -b ${params.bootstrap} -i ${index} -t ${task.cpus} -o kallisto_${name} ${reads}
+        """
+    }  
+    else {
+        """
+        mkdir kallisto_${name}
+        kallisto quant --single -l ${params.fragment_len} -s ${params.fragment_sd} -b ${params.bootstrap} -i ${index} -t ${task.cpus} -o kallisto_${name} ${reads}
+        """
+    }
+}
+
+/*
+ * STEP 4 - Create Gene Enrichment Lists
+ */
+process sleuth {
+
+    input:
+    file 'kallisto/*' from kallisto_out_dirs.collect()   
+    file exp_file
+
+    output: 
+    file 'sleuth_object.so'
+    file 'gene_table_results.txt'
+
+    script:
+    """
+    sleuth.R kallisto ${exp_file}
+    """
+}
 
 
 /*
- * STEP 2 - MultiQC
+ * STEP 5 - MultiQC
  */
 process multiqc {
     tag "$prefix"

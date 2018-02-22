@@ -27,7 +27,6 @@ def helpMessage() {
 
     Mandatory arguments:
       --reads                       Path to input data (must be surrounded with quotes)
-      --genome                      Name of iGenomes reference
       -profile                      Hardware config to use. docker / aws
 
     Options:
@@ -61,9 +60,9 @@ if (params.help){
 
 // Configurable variables
 params.name = false
-params.fasta = params.genome ? params.genomes[ params.genome ].fasta ?: false : false
 params.multiqc_config = "$baseDir/conf/multiqc_config.yaml"
-params.reads = "data/*{1,2}.fastq.gz"
+params.reads = "data/*{1,2}.fq"
+params.fasta = "data/l1000_transcripts.fa"
 params.outdir = './results'
 params.email = false
 params.plaintext_email = false
@@ -76,14 +75,11 @@ if ( params.fasta ){
     fasta = file(params.fasta)
     if( !fasta.exists() ) exit 1, "Fasta file not found: ${params.fasta}"
 }
-//
-// NOTE - THIS IS NOT USED IN THIS PIPELINE, EXAMPLE ONLY
-// If you want to use the above in a process, define the following:
-//   input:
-//   file fasta from fasta
-//
 
-
+if ( params.reads ){
+    fasta = file(params.reads)
+    if( !reads.exists() ) exit 1, "Reads file(s) not found: ${params.reads}"
+}
 
 
 // Has the run name been specified by the user?
@@ -98,9 +94,9 @@ if( !(workflow.runName ==~ /[a-z]+_[a-z]+/) ){
  */
 params.singleEnd = false
 Channel
-    .fromFilePairs( params.reads, size: params.singleEnd ? 1 : 2 )
+    .fromFilePairs( params.reads, size: -1 )
     .ifEmpty { exit 1, "Cannot find any reads matching: ${params.reads}\nNB: Path needs to be enclosed in quotes!\nNB: Path requires at least one * wildcard!\nIf this is single-end data, please specify --singleEnd on the command line." }
-    .into { read_files_fastqc }
+    .into { read_files_fastqc; read_files_quantify }
 
 
 // Header log info
@@ -159,6 +155,7 @@ process get_software_versions {
     echo $workflow.nextflow.version > v_nextflow.txt
     fastqc --version > v_fastqc.txt
     multiqc --version > v_multiqc.txt
+    kallisto version > v_kallisto.txt
     scrape_software_versions.py > software_versions_mqc.yaml
     """
 }
@@ -168,7 +165,7 @@ process get_software_versions {
  * STEP 1 - FastQC
  */
 process fastqc {
-    tag "$name"
+    tag "fastqc: $name"
     publishDir "${params.outdir}/fastqc", mode: 'copy',
         saveAs: {filename -> filename.indexOf(".zip") > 0 ? "zips/$filename" : "$filename"}
 
@@ -188,15 +185,15 @@ process fastqc {
  * STEP 2 - Index Transcriptome
  */
 process index {
-    tag "$prefix"
+    tag "index transcriptome"
     publishDir "${params.outdir}/index", mode: 'copy'
 
     input:
-    file transcriptome_file
-    
+    file fasta
+
     output:
     file "transcriptome.index" into transcriptome_index
-      
+
     script:
     """
     kallisto index -i transcriptome.index ${transcriptome_file}
@@ -204,54 +201,48 @@ process index {
 }
 
 /*
- * STEP 3 - Quantify RNA 
+ * STEP 3 - Quantify RNA
  */
 
 process quantify {
     tag "reads: $name"
+    publishDir "${params.outdir}/index", mode: 'copy'
 
     input:
     file index from transcriptome_index
-    set val(name), file(reads) from read_files
+    set val(name), file(reads) from read_files_quantify
 
     output:
-    file "kallisto_${name}" into kallisto_out_dirs 
+    file "kallisto_${name}" into kallisto_out_dirs
+    file("kallisto_quanitfy_${name}") into kallisto_quantify_multiQC
 
     script:
     def single = reads instanceof Path
     if( !single ) {
         """
         mkdir kallisto_${name}
-        kallisto quant -b ${params.bootstrap} -i ${index} -t ${task.cpus} -o kallisto_${name} ${reads}
+        kallisto quant -b ${params.bootstrap} \
+                       -i ${index} \
+                       -t ${task.cpus} \
+                       -o kallisto_${name} \
+                       ${reads}
         """
-    }  
+    }
     else {
         """
         mkdir kallisto_${name}
-        kallisto quant --single -l ${params.fragment_len} -s ${params.fragment_sd} -b ${params.bootstrap} -i ${index} -t ${task.cpus} -o kallisto_${name} ${reads}
+        kallisto quant --single \
+                        -l ${params.fragment_len} \
+                        -s ${params.fragment_sd} \
+                        -b ${params.bootstrap} \
+                        -i ${index} \
+                        -t ${task.cpus} \
+                        -o kallisto_${name} \
+                        ${reads}
         """
     }
+    cp .command.err kallisto_quanitfy_${name}
 }
-
-/*
- * STEP 4 - Create Gene Enrichment Lists
- */
-process sleuth {
-
-    input:
-    file 'kallisto/*' from kallisto_out_dirs.collect()   
-    file exp_file
-
-    output: 
-    file 'sleuth_object.so'
-    file 'gene_table_results.txt'
-
-    script:
-    """
-    sleuth.R kallisto ${exp_file}
-    """
-}
-
 
 /*
  * STEP 5 - MultiQC
@@ -263,6 +254,7 @@ process multiqc {
     input:
     file multiqc_config
     file ('fastqc/*') from fastqc_results.collect()
+    file ('kallisto_quanitfy_*') from fallisto_quantify_multiQC.collect()
     file ('software_versions/*') from software_versions_yaml
 
     output:

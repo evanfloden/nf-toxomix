@@ -21,13 +21,38 @@ RUN apt-get update && \
         make \
         python-dev \
         zlib1g-dev \
+        hdf5-tools \
+        libhdf5-dev \
+        hdf5-helpers \
+        libhdf5-serial-dev \
     && rm -rf /var/lib/apt/lists/*
+
+# install R 
+RUN echo "deb http://cran.rstudio.com/bin/linux/debian jessie-cran3/" >>  /etc/apt/sources.list &&\
+ apt-key adv --keyserver keys.gnupg.net --recv-key 381BA480 &&\
+ apt-get update --fix-missing && \
+ apt-get -y install r-base
 
 # Install pip
 RUN curl -fsSL https://bootstrap.pypa.io/get-pip.py -o /opt/get-pip.py && \
     python /opt/get-pip.py && \
     rm /opt/get-pip.py
 
+# Install Kallisto
+RUN wget -q https://github.com/pachterlab/kallisto/archive/v0.44.0.zip && \
+    unzip v0.44.0.zip && \
+    mkdir kallisto-0.44.0/build && \
+    cd kallisto-*/build && \
+    cmake .. && \
+	make && \
+	make install
+
+
+# Install Sleuth
+RUN R -e 'source("http://bioconductor.org/biocLite.R"); library(BiocInstaller); biocLite(c("XML","biomaRt")); biocLite("rhdf5"); install.packages("devtools", repos="http://cloud.r-project.org/"); devtools::install_github("pachterlab/sleuth")'
+
+
+# Install FastQC
 RUN curl -fsSL http://www.bioinformatics.babraham.ac.uk/projects/fastqc/fastqc_v0.11.5.zip -o /opt/fastqc_v0.11.5.zip && \
     unzip /opt/fastqc_v0.11.5.zip -d /opt/ && \
     chmod 755 /opt/FastQC/fastqc && \
@@ -37,6 +62,3 @@ RUN curl -fsSL http://www.bioinformatics.babraham.ac.uk/projects/fastqc/fastqc_v
 # Install MultiQC
 RUN pip install git+git://github.com/ewels/MultiQC.git
 
-# Create root directories for common Swedish HPC systems
-RUN mkdir /pica /lupus /crex1 /crex2 /proj /scratch /sw \
-          /c3se /local /apps

@@ -27,11 +27,11 @@ RUN apt-get update && \
         libhdf5-serial-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# install R 
+# install R
 RUN echo "deb http://cran.rstudio.com/bin/linux/debian jessie-cran3/" >>  /etc/apt/sources.list &&\
  apt-key adv --keyserver keys.gnupg.net --recv-key 381BA480 &&\
  apt-get update --fix-missing && \
- apt-get -y install r-base
+ apt-get -y --allow-unauthenticated --no-install-recommends install r-base
 
 # Install pip
 RUN curl -fsSL https://bootstrap.pypa.io/get-pip.py -o /opt/get-pip.py && \
@@ -61,4 +61,3 @@ RUN curl -fsSL http://www.bioinformatics.babraham.ac.uk/projects/fastqc/fastqc_v
 
 # Install MultiQC
 RUN pip install git+git://github.com/ewels/MultiQC.git
-

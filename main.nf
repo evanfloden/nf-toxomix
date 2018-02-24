@@ -61,7 +61,7 @@ if (params.help){
 // Configurable variables
 params.name = false
 params.multiqc_config = "$baseDir/conf/multiqc_config.yaml"
-params.reads = "data/*{1,2}.fq"
+params.reads = 'data/*_{1,2}.fq'
 params.fasta = "data/l1000_transcripts.fa"
 params.outdir = './results'
 params.email = false
@@ -76,11 +76,6 @@ if ( params.fasta ){
     if( !fasta.exists() ) exit 1, "Fasta file not found: ${params.fasta}"
 }
 
-if ( params.reads ){
-    fasta = file(params.reads)
-    if( !reads.exists() ) exit 1, "Reads file(s) not found: ${params.reads}"
-}
-
 
 // Has the run name been specified by the user?
 //  this has the bonus effect of catching both -name and --name
@@ -92,7 +87,6 @@ if( !(workflow.runName ==~ /[a-z]+_[a-z]+/) ){
 /*
  * Create a channel for input read files
  */
-params.singleEnd = false
 Channel
     .fromFilePairs( params.reads, size: -1 )
     .ifEmpty { exit 1, "Cannot find any reads matching: ${params.reads}\nNB: Path needs to be enclosed in quotes!\nNB: Path requires at least one * wildcard!\nIf this is single-end data, please specify --singleEnd on the command line." }
@@ -196,7 +190,7 @@ process index {
 
     script:
     """
-    kallisto index -i transcriptome.index ${transcriptome_file}
+    kallisto index -i transcriptome.index ${fasta}
     """
 }
 
@@ -254,7 +248,7 @@ process multiqc {
     input:
     file multiqc_config
     file ('fastqc/*') from fastqc_results.collect()
-    file ('kallisto_quanitfy_*') from fallisto_quantify_multiQC.collect()
+    file ('kallisto_quanitfy_*') from kallisto_quantify_multiQC.collect()
     file ('software_versions/*') from software_versions_yaml
 
     output:

@@ -37,10 +37,10 @@ RUN wget http://repo.continuum.io/miniconda/Miniconda3-3.7.0-Linux-x86_64.sh -O 
     export PATH="/miniconda/bin:$PATH"
 
 # Install Kallisto
-RUN conda config --add channels defaults \
- && conda config --add channels conda-forge \
- && conda config --add channels bioconda \
- && conda install -y  kallisto
+RUN /miniconda/bin/conda config --add channels defaults \
+ && /miniconda/bin/conda config --add channels conda-forge \
+ && /miniconda/bin/conda config --add channels bioconda \
+ && /miniconda/bin/conda install -y  kallisto
 
 # Install Sleuth
 RUN R -e 'source("http://bioconductor.org/biocLite.R"); library(BiocInstaller); biocLite(c("XML","biomaRt")); biocLite("rhdf5"); install.packages("devtools", repos="http://cloud.r-project.org/"); devtools::install_github("pachterlab/sleuth")'

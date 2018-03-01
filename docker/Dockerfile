@@ -34,7 +34,7 @@ RUN curl -fsSL https://bootstrap.pypa.io/get-pip.py -o /opt/get-pip.py && \
 RUN conda config --add channels defaults \
  && conda config --add channels bioconda \
  && conda config --add channels conda-forge \
- && conda install kalliso r r-essentials r-irkernel r-sleuth
+ && conda install kallisto r r-essentials r-irkernel r-sleuth
  
 # Install Sleuth
 #RUN R -e 'source("http://bioconductor.org/biocLite.R"); library(BiocInstaller); biocLite(c("XML","biomaRt")); biocLite("rhdf5"); install.packages("devtools", repos="http://cloud.r-project.org/"); devtools::install_github("pachterlab/sleuth")'

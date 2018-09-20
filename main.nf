@@ -60,6 +60,11 @@ if (params.help){
 
 // Configurable variables
 params.name = false
+
+params.transcriptomics_data = "ftp://ftp.ncbi.nlm.nih.gov/geo/series/GSE28nnn/GSE28878/matrix/GSE28878_series_matrix.txt.gz"
+params.compound_info_excel = "$baseDir/data/Supplementary_Data_1.xls"
+
+
 params.multiqc_config = "$baseDir/conf/multiqc_config.yaml"
 params.reads = 'data/*_{1,2}.fq'
 params.fasta = "data/l1000_transcripts.fa"
@@ -75,6 +80,12 @@ if ( params.fasta ){
     fasta = file(params.fasta)
     if( !fasta.exists() ) exit 1, "Fasta file not found: ${params.fasta}"
 }
+
+Channel.from(params.transcriptomics_data)
+  .set {transcriptomics_data_url_ch}
+
+Channel.fromPath(params.compound_info_excel)
+  .set { compound_info_excel_ch}
 
 
 // Has the run name been specified by the user?
@@ -136,155 +147,50 @@ try {
 
 
 /*
- * Parse software version numbers
- */
-process get_software_versions {
+ * Download transcriptomics Data
+*
+*process get_transcriptomics_data {
+*    container 'ubuntu:xenial'
+*
+*    input:
+*        val(transcriptomics_data_url) from transcriptomics_data_url_ch
+*
+*    output:
+*        file('transcriptomics_data.txt') into transcriptomics_data_ch
+*
+*    shell:
+*        """
+*        curl -X GET "${transcriptomics_data_url}" > transcriptomics_data_tmp1.gz
+*        gunzip transcriptomics_data_tmp1.gz
+*        parse_transcript_data.awk  transcriptomics_data_tmp1|tr -d '"' > transcriptomics_data.txt
+*        """
+*}
 
-    output:
-    file 'software_versions_mqc.yaml' into software_versions_yaml
-
-    script:
-    """
-    echo $version > v_pipeline.txt
-    echo $workflow.nextflow.version > v_nextflow.txt
-    fastqc --version > v_fastqc.txt
-    multiqc --version > v_multiqc.txt
-    kallisto version > v_kallisto.txt
-    scrape_software_versions.py > software_versions_mqc.yaml
-    """
-}
-
-
-/*
- * STEP 1 - FastQC
- */
-process fastqc {
-    tag "fastqc: $name"
-    publishDir "${params.outdir}/fastqc", mode: 'copy',
-        saveAs: {filename -> filename.indexOf(".zip") > 0 ? "zips/$filename" : "$filename"}
-
-    input:
-    set val(name), file(reads) from read_files_fastqc
-
-    output:
-    file "*_fastqc.{zip,html}" into fastqc_results
-
-    script:
-    """
-    fastqc -q $reads
-    """
-}
+*/
 
 /*
- * STEP 2 - Index Transcriptome
+ * Download transcriptomics Data11
  */
-process index {
-    tag "index transcriptome"
-    publishDir "${params.outdir}/index", mode: 'copy'
+process prcocess_compound_info {
+    container 'amancevice/pandas:0.23.4-python3'
 
     input:
-    file fasta
+        file(compound_info_file) from compound_info_excel_ch
 
     output:
-    file "transcriptome.index" into transcriptome_index
+        file('compound_info.tsv') into compound_info_ch
 
     script:
     """
-    kallisto index -i transcriptome.index ${fasta}
-    """
-}
+    #!/usr/bin/env python
 
-/*
- * STEP 3 - Quantify RNA
- */
-
-process quantify {
-    tag "reads: $name"
-    publishDir "${params.outdir}/index", mode: 'copy'
-
-    input:
-    file index from transcriptome_index
-    set val(name), file(reads) from read_files_quantify
-
-    output:
-    file "kallisto_${name}" into kallisto_out_dirs
-    file("kallisto_quanitfy_${name}") into kallisto_quantify_multiQC
-
-    script:
-    def single = reads instanceof Path
-    if( !single ) {
-        """
-        mkdir kallisto_${name}
-        kallisto quant -b ${params.bootstrap} \
-                       -i ${index} \
-                       -t ${task.cpus} \
-                       -o kallisto_${name} \
-                       ${reads}
-        """
-    }
-    else {
-        """
-        mkdir kallisto_${name}
-        kallisto quant --single \
-                        -l ${params.fragment_len} \
-                        -s ${params.fragment_sd} \
-                        -b ${params.bootstrap} \
-                        -i ${index} \
-                        -t ${task.cpus} \
-                        -o kallisto_${name} \
-                        ${reads}
-        """
-    }
-    cp .command.err kallisto_quanitfy_${name}
-}
-
-/*
- * STEP 5 - MultiQC
- */
-process multiqc {
-    tag "$prefix"
-    publishDir "${params.outdir}/MultiQC", mode: 'copy'
-
-    input:
-    file multiqc_config
-    file ('fastqc/*') from fastqc_results.collect()
-    file ('kallisto_quanitfy_*') from kallisto_quantify_multiQC.collect()
-    file ('software_versions/*') from software_versions_yaml
-
-    output:
-    file "*multiqc_report.html" into multiqc_report
-    file "*_data"
-    val prefix into multiqc_prefix
-
-    script:
-    prefix = fastqc[0].toString() - '_fastqc.html' - 'fastqc/'
-    rtitle = custom_runName ? "--title \"$custom_runName\"" : ''
-    rfilename = custom_runName ? "--filename " + custom_runName.replaceAll('\\W','_').replaceAll('_+','_') + "_multiqc_report" : ''
-    """
-    multiqc -f $rtitle $rfilename --config $multiqc_config .
-    """
-}
-
-
-
-/*
- * STEP 3 - Output Description HTML
- */
-process output_documentation {
-    tag "$prefix"
-    publishDir "${params.outdir}/Documentation", mode: 'copy'
-
-    input:
-    file output_docs
-
-    output:
-    file "results_description.html"
-
-    script:
-    """
-    markdown_to_html.r $output_docs results_description.html
-    """
-}
+    import pandas as pd
+    print("input  is:" + str("${compound_info_file}"))
+    print("output is:" + str("compound_info.tsv"))
+    excel_file = pd.read_excel(io=str("${compound_info_file}"))
+    excel_file.to_csv(path_or_buf=str("compound_info.tsv"), sep="\t")
+   """
+  }
 
 
 

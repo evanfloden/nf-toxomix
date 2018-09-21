@@ -7,9 +7,9 @@ vim: syntax=groovy
 ========================================================================================
  NF-toxomix Analysis Pipeline. Started 2018-02-15.
  #### Homepage / Documentation
- https://github.com/skptic/NF-toxomix
+ https://github.com/evanfloden/nf-toxomix
  #### Authors
- Evan Floden skptic <evan.floden@gmail.com> - https://github.com/skptic>
+ Evan Floden (evanfloden) <evan.floden@gmail.com> - https://github.com/evanfloden>
 ----------------------------------------------------------------------------------------
 */
 
@@ -43,7 +43,6 @@ def helpMessage() {
 }
 
 
-
 /*
  * SET UP CONFIGURATION VARIABLES
  */
@@ -60,18 +59,14 @@ if (params.help){
 
 // Configurable variables
 params.name = false
-
 params.transcriptomics_data = "ftp://ftp.ncbi.nlm.nih.gov/geo/series/GSE28nnn/GSE28878/matrix/GSE28878_series_matrix.txt.gz"
 params.compound_info_excel = "$baseDir/data/Supplementary_Data_1.xls"
-
-
 params.multiqc_config = "$baseDir/conf/multiqc_config.yaml"
 params.reads = 'data/*_{1,2}.fq'
 params.fasta = "data/l1000_transcripts.fa"
 params.outdir = './results'
 params.email = false
 params.plaintext_email = false
-
 multiqc_config = file(params.multiqc_config)
 output_docs = file("$baseDir/docs/output.md")
 
@@ -149,7 +144,6 @@ try {
 /*
  * Download transcriptomics Data
  */
-
 process get_transcriptomics_data {
 
     input:
@@ -157,19 +151,18 @@ process get_transcriptomics_data {
 
     output:
         file('transcriptomics_data.txt') into transcriptomics_data_ch
+        file('transcriptomics_data_raw') into transcriptomics_data_raw_ch
 
     shell:
         """
-        curl -X GET "${transcriptomics_data_url}" > transcriptomics_data_tmp1.gz
-        gunzip transcriptomics_data_tmp1.gz
-        awk -f ${baseDir}/bin/parse_transcript_data.awk  transcriptomics_data_tmp1|tr -d '"' > transcriptomics_data.txt
+        curl -X GET "${transcriptomics_data_url}" > transcriptomics_data_raw.gz
+        gunzip transcriptomics_data_raw.gz
+        awk -f ${baseDir}/bin/parse_transcript_data.awk  transcriptomics_data_raw|tr -d '"' > transcriptomics_data.txt
         """
 }
 
-
-
 /*
- * Download transcriptomics Data11
+ * Process the comound info execel sheet in R with pandas
  */
 process process_compound_info {
 
@@ -191,6 +184,92 @@ process process_compound_info {
     """
   }
 
+compound_info_ch
+    .into { compound_info_ch1; compound_info_ch2 }
+
+/*
+ * Create the compound training data
+ */
+process training_compound_info {
+
+      input:
+      file(compound_info) from compound_info_ch1
+
+      output:
+      file("training_data_compound_info.tsv") into compound_info_training
+
+      shell:
+      """
+      a=\$(tempfile -d .)
+      cut -f1,10- ${compound_info} |awk 'BEGIN{{print("compound\\tgenotoxicity");}};NR>3'|head -35 > \$a;
+      sed -re 's/\\+\$/GTX/g; s/\\-\$/NGTX/g; s/-//g; s/\\]//g; s/\\[//g' \$a > training_data_compound_info.tsv
+      """
+  }
+
+process validation_compound_info {
+
+     input:
+     file(compound_info) from compound_info_ch2
+
+     output:
+     file("validation_data_compound_info.tsv") into compound_info_validation_ch
+
+     shell:
+     """
+     a=\$(tempfile -d .)
+     cut -f1,10- ${compound_info} |awk 'NR>41'|sed -re 's/\\+\$/GTX/g; s/\\-\$/NGTX/g;  s/[[:punct:]]//g' > \$a;
+     awk 'BEGIN{{print("compound\\tgenotoxicity");}}{{print}}' \$a| sed -re 's/ppDDT\\t/DDT\\t/g; s/\\s+/\\t/g'> validation_data_compound_info.tsv
+     """
+}
+
+/*
+ *  Each series has different solvent, match to the correct solvent
+ */
+process map_sovent_to_exposure {
+
+    input:
+    file(transcriptomics_data_raw) from transcriptomics_data_raw_ch
+
+    output:
+    file("solvent2exposure.tsv") into solvent_to_exposure_ch
+
+    shell:
+    """
+    a=\$(tempfile -d .)
+    b=\$(tempfile -d .)
+    c=\$(tempfile -d .)
+    d=\$(tempfile -d .)
+    e=\$(tempfile -d .)
+    paste <(grep Sample_title ${transcriptomics_data_raw}|cut -f2-|tr -d '"'|tr '\\t' '\\n') <(grep Series_sample_id ${transcriptomics_data_raw} > \$a;
+    cut -f2- \$a|tr -d '"'|sed -re 's/\\s*\$//'|tr ' ' '\\n')|grep 24h > \$b;
+    sed -re 's/^Serie\\s*//g; s/, HepG2 exposed to\\s*/\\t/g; s/for 24h, biological rep\\s*/\\t/g' \$b > \$c;
+    awk 'BEGIN{{print("series_id\\tcompound\\treplicate\\tarray_name");}}{{print}}' \$c|sed -re 's/\\s+/\\t/g' > \$d;
+    sed -re 's/DEPH/DEHP/g; s/Ethyl\\t/EtAc\\t/g; s/NPD\\t/NDP\\t/g; s/Paracres\\t/pCres\\t/g; s/Phenol\\t/Ph\\t/g; s/Resor/RR/g' \$d > \$e;
+    sed -re 's/2-Cl\\t/2Cl\\t/g' \$e> solvent2exposure.tsv
+    """
+}
+
+
+/*
+ * Create a file that stores a mapping between genotoxicity, compound and array information for validation set
+ */
+process map_compound_to_array_validation {
+
+    input:
+    file(validation_data_compound_info) from compound_info_validation_ch
+    file(solvent2exposure) from solvent_to_exposure_ch
+
+    output:
+    file("compound_array_genotoxicity_val.tsv") into compound_array_genotoxicity_ch
+
+    shell:
+    """
+    a=\$(tempfile -d .)
+    echo -e "series_id\\tcompound\\treplicate\\tarray_name\\tgenotoxicity" > compound_array_genotoxicity_val.tsv;
+    LANG=en_EN join -i -o 2.1,2.2,2.3,2.4,1.2 -t \$'\\t' -1 1 -2 2 <(cat ${validation_data_compound_info} |sort -k1.1i,1.3i  -t \$'\\t' ) <(LANG=en_EN sort -fbi -t \$'\\t' -k 2 ${solvent2exposure}) > \$a;
+    grep -iv genotoxicity \$a >> compound_array_genotoxicity_val.tsv;
+    """
+}
 
 
 

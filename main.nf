@@ -148,31 +148,30 @@ try {
 
 /*
  * Download transcriptomics Data
-*
-*process get_transcriptomics_data {
-*    container 'ubuntu:xenial'
-*
-*    input:
-*        val(transcriptomics_data_url) from transcriptomics_data_url_ch
-*
-*    output:
-*        file('transcriptomics_data.txt') into transcriptomics_data_ch
-*
-*    shell:
-*        """
-*        curl -X GET "${transcriptomics_data_url}" > transcriptomics_data_tmp1.gz
-*        gunzip transcriptomics_data_tmp1.gz
-*        parse_transcript_data.awk  transcriptomics_data_tmp1|tr -d '"' > transcriptomics_data.txt
-*        """
-*}
+ */
 
-*/
+process get_transcriptomics_data {
+
+    input:
+        val(transcriptomics_data_url) from transcriptomics_data_url_ch
+
+    output:
+        file('transcriptomics_data.txt') into transcriptomics_data_ch
+
+    shell:
+        """
+        curl -X GET "${transcriptomics_data_url}" > transcriptomics_data_tmp1.gz
+        gunzip transcriptomics_data_tmp1.gz
+        awk -f ${baseDir}/bin/parse_transcript_data.awk  transcriptomics_data_tmp1|tr -d '"' > transcriptomics_data.txt
+        """
+}
+
+
 
 /*
  * Download transcriptomics Data11
  */
-process prcocess_compound_info {
-    container 'amancevice/pandas:0.23.4-python3'
+process process_compound_info {
 
     input:
         file(compound_info_file) from compound_info_excel_ch
@@ -182,15 +181,16 @@ process prcocess_compound_info {
 
     script:
     """
-    #!/usr/bin/env python
+    #!/opt/conda/bin/python
 
     import pandas as pd
     print("input  is:" + str("${compound_info_file}"))
     print("output is:" + str("compound_info.tsv"))
-    excel_file = pd.read_excel(io=str("${compound_info_file}"))
-    excel_file.to_csv(path_or_buf=str("compound_info.tsv"), sep="\t")
-   """
+    excel_file = pd.read_excel(io="${compound_info_file}", encoding='utf-16')
+    excel_file.to_csv(path_or_buf="compound_info.tsv",  encoding='utf-16', sep="\t")
+    """
   }
+
 
 
 

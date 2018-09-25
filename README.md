@@ -32,4 +32,4 @@ The NF-toxomix pipeline comes with documentation about the pipeline, found in th
 5. [Troubleshooting](docs/troubleshooting.md)
 
 ### Credits
-This pipeline was written by Evan Floden ([skptic](https://github.com/skptic)) at [Center for Genomic Regulation (CRG)](http://www.crg.eu).
+This pipeline was written by Evan Floden ([evanfloden](https://github.com/evanfloden)) at [Center for Genomic Regulation (CRG)](http://www.crg.eu).

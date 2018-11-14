@@ -180,7 +180,7 @@ process process_compound_info {
     print("input  is:" + str("${compound_info_file}"))
     print("output is:" + str("compound_info.tsv"))
     excel_file = pd.read_excel(io="${compound_info_file}", encoding='utf-16')
-    excel_file.to_csv(path_or_buf="compound_info.tsv",  encoding='utf-16', sep="\t")
+    excel_file.to_csv(path_or_buf="compound_info.tsv",  encoding='utf-8', sep="\t")
     """
   }
 
@@ -190,19 +190,22 @@ compound_info_ch
 /*
  * Create the compound training data
  */
+
 process training_compound_info {
 
       input:
       file(compound_info) from compound_info_ch1
 
       output:
-      file("training_data_compound_info.tsv") into compound_info_training
+      file("training_data_compound_info.tsv") into compound_info_training_ch
 
       shell:
       """
-      a=\$(tempfile -d .)
-      cut -f1,10- ${compound_info} |awk 'BEGIN{{print("compound\\tgenotoxicity");}};NR>3'|head -35 > \$a;
-      sed -re 's/\\+\$/GTX/g; s/\\-\$/NGTX/g; s/-//g; s/\\]//g; s/\\[//g' \$a > training_data_compound_info.tsv
+
+      echo -e 'compound\tgenotoxicity' > a.txt
+      cut -f1,10- compound_info.tsv | tail -n +4 | head -n 34 >> a.txt
+      sed -re 's/\\+\$/GTX/g; s/\\-\$/NGTX/g;  s/[[:punct:]]//g' a.txt > training_data_compound_info.tsv
+  
       """
   }
 
@@ -225,6 +228,7 @@ process validation_compound_info {
 /*
  *  Each series has different solvent, match to the correct solvent
  */
+
 process map_sovent_to_exposure {
 
     input:
@@ -249,7 +253,8 @@ process map_sovent_to_exposure {
     """
 }
 
-
+solvent_to_exposure_ch
+    .into{ solvent_to_exposure_ch1; solvent_to_exposure_ch2; solvent_to_exposure_ch3 }
 /*
  * Create a file that stores a mapping between genotoxicity, compound and array information for validation set
  */
@@ -257,20 +262,125 @@ process map_compound_to_array_validation {
 
     input:
     file(validation_data_compound_info) from compound_info_validation_ch
-    file(solvent2exposure) from solvent_to_exposure_ch
+    file(solvent2exposure) from solvent_to_exposure_ch1
 
     output:
-    file("compound_array_genotoxicity_val.tsv") into compound_array_genotoxicity_ch
+    file("compound_array_genotoxicity_val.tsv") into compound_array_genotoxicity_val_ch
 
     shell:
     """
-    a=\$(tempfile -d .)
     echo -e "series_id\\tcompound\\treplicate\\tarray_name\\tgenotoxicity" > compound_array_genotoxicity_val.tsv;
-    LANG=en_EN join -i -o 2.1,2.2,2.3,2.4,1.2 -t \$'\\t' -1 1 -2 2 <(cat ${validation_data_compound_info} |sort -k1.1i,1.3i  -t \$'\\t' ) <(LANG=en_EN sort -fbi -t \$'\\t' -k 2 ${solvent2exposure}) > \$a;
-    grep -iv genotoxicity \$a >> compound_array_genotoxicity_val.tsv;
+
+    sed -i 's/γ//g' ${validation_data_compound_info}
+
+    cat ${validation_data_compound_info} | LANG=en_EN sort -k1.1i,1.3i  -t \$'\\t' > validation_sorted.txt
+
+    cat solvent2exposure.tsv | LANG=en_EN sort -bi -t \$'\\t' -k 2 > solvent_sorted.txt
+
+    join -o 2.1,2.2,2.3,2.4,1.2 -t \$'\\t' -1 1 -2 2 validation_sorted.txt solvent_sorted.txt > a.txt
+
+    grep -iv genotoxicity a.txt >> compound_array_genotoxicity_val.tsv;
+
     """
 }
 
+
+/*
+ * Create a file that stores a mapping between genotoxicity, compound and array information for training set
+ */
+process map_compound_to_array_training {
+
+    input:
+    file(training_data_compound_info) from compound_info_training_ch
+    file(solvent2exposure) from solvent_to_exposure_ch2
+
+    output:
+    file("compound_array_genotoxicity_train.tsv") into compound_array_genotoxicity_train_ch
+
+    shell:
+    """
+    echo -e "series_id\\tcompound\\treplicate\\tarray_name\\tgenotoxicity" > compound_array_genotoxicity_train.tsv;
+
+
+    cat ${training_data_compound_info} | LANG=en_EN sort -k1.1i,1.3i  -t \$'\\t' > training_sorted.txt
+
+    cat solvent2exposure.tsv | LANG=en_EN sort -bi -t \$'\\t' -k 2 > solvent_sorted.txt
+
+    join -o 2.1,2.2,2.3,2.4,1.2 -t \$'\\t' -1 1 -2 2 training_sorted.txt solvent_sorted.txt > a.txt
+
+    grep -iv genotoxicity a.txt >> compound_array_genotoxicity_train.tsv;
+
+    """
+}
+
+
+/*
+ *  Calculate the correct log2ratio using the corresponding solvent for each replicate
+ */ 
+
+process calculate_log2_ratio {
+
+    input:
+    file (transcriptomics_data) from transcriptomics_data_ch
+    file (solvent2expose) from solvent_to_exposure_ch3
+
+    output:
+    file ("log2ratio_results.txt") into log2ratio_results_ch
+    file ("solvent2exposure_mapping.txt") into solvent2exposure_mapping_ch
+
+    script:
+    """
+        #!/opt/conda/bin/python
+        import pandas as pd
+        #print("transcriptomics file is: " + str(${transcriptomics_data}))
+        #print("treatment2solvent file is: " + str(${solvent2expose}))
+        transcr_df = pd.read_table(filepath_or_buffer="${transcriptomics_data}")
+        solvent2exposure_df = pd.read_table(filepath_or_buffer = "${solvent2expose}")
+        # Find corresponding solvent ids for each compound
+        results_df = pd.DataFrame()
+        for val in solvent2exposure_df.series_id.drop_duplicates().values:
+            tmp = solvent2exposure_df.loc[solvent2exposure_df.series_id==val,:].query("compound.str.lower() in ['dmso','etoh','pbs']")
+            tmp.index=range(tmp.shape[0])          
+            tmp.columns = ['solvent_'+str(i) for i in tmp.columns]
+            compounds = solvent2exposure_df.loc[solvent2exposure_df.series_id==val,:].query("compound.str.lower() not in ['dmso','etoh','pbs']")['compound'].drop_duplicates()
+            for compound in compounds:
+                tmp1 = solvent2exposure_df.loc[solvent2exposure_df.series_id==val,:].query("compound=='"+str(compound)+"'")
+                tmp1.index = range(tmp1.shape[0])                
+                tmp2 = pd.concat([tmp1,tmp],axis=1, join='inner')
+                if results_df.shape[0] == 0:
+                    results_df = tmp2
+                else:
+                    results_df = results_df.append(tmp2)
+        results_df.to_csv(path_or_buf=str("solvent2exposure_mapping.txt"), sep="\\t", index=False)
+        # Calculate log2ratio
+        log2ratio_df = pd.DataFrame()
+        for compound in results_df['compound'].drop_duplicates().values:
+            for replicate in results_df[results_df['compound']==compound].replicate:
+                compound_array = results_df[results_df['compound']==compound].query('replicate=='+str(replicate)).array_name.values[0]
+                solvent_array  = results_df[results_df['compound']==compound].query('replicate=='+str(replicate)).solvent_array_name.values[0]
+                tmp3 = transcr_df.loc[:,compound_array] - transcr_df.loc[:,solvent_array]
+                tmp3.index = transcr_df.index
+                tmp3.columns = [compound_array]
+                if log2ratio_df.shape[0] == 0:
+                    log2ratio_df = tmp3
+                    log2ratio_df.columns = tmp3.columns
+                    log2ratio_df.index = tmp3.index
+                else:
+                    column_names = list(log2ratio_df.columns)
+                    column_names.append(compound_array)
+                    log2ratio_df = pd.concat([log2ratio_df,tmp3],axis=1)
+                    log2ratio_df.columns = column_names
+        column_names = list(log2ratio_df.columns)
+        column_names.insert(0,'ID_REF')
+        log2ratio_df = pd.concat([transcr_df['ID_REF'],log2ratio_df], axis=1)
+        log2ratio_df.columns = column_names
+        log2ratio_df.to_csv(path_or_buf=str("log2ratio_results.txt"), sep="\\t", index=False)
+    """
+ 
+    
+
+
+}
 
 
 /*

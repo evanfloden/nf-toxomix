@@ -19,6 +19,7 @@ The pipeline is built using [Nextflow](https://www.nextflow.io), a workflow tool
 
 The pipeline from Juma Bayjan at Maastricht University which in turn aimed to reproduce the article "A transcriptomics-based in vitro assay for predicting chemical genotoxicity in vivo", by C.Magkoufopoulou et. al.
 
+This pipeline focuses on training the genotoxicity model.
 
 ### Documentation
 The NF-toxomix pipeline comes with documentation about the pipeline, found in the `docs/` directory:
